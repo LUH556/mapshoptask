@@ -73,6 +73,10 @@ main{padding:18px 20px 60px;max-width:1280px;margin:0 auto}
 .parse-result{font-size:12px;color:var(--ok);margin-top:6px;min-height:16px}
 footer{padding:20px;font-family:"SF Mono",monospace;font-size:10px;color:var(--ink-soft);text-align:center}
 @media(max-width:600px){header{padding:18px 16px 12px}header h1{font-size:20px}main{padding:14px 14px 40px}.grid{grid-template-columns:1fr}.toolbar{padding:10px 14px}.svg-wrap svg{min-width:1100px}.form-overlay{padding:20px 10px}#map{height:260px}}
+
+.filter-toggle{flex-basis:100%;margin-top:4px}
+.filter-toggle[open] summary{color:var(--accent)}
+.filter-chips{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px}
 </style>
 </head>
 <body>
@@ -82,7 +86,13 @@ footer{padding:20px;font-family:"SF Mono",monospace;font-size:10px;color:var(--i
 <p class="sub">拠点：北京光明饭店（亮马桥路42号 / Line 10 亮马桥駅）</p>
 <div class="hotel"><b>北京光明饭店</b>　北京市朝阳区亮马桥路42号<br><span style="font-size:12px;opacity:.85">Běijīng Shì Cháoyáng Qū Liàngmǎqiáo Lù 42 Hào / 🚇 Line 10 亮马桥駅</span></div>
 </header>
-<div class="toolbar" id="toolbar"><input class="search" id="search" placeholder="名称・住所・区名で絞り込み"/></div>
+<div class="toolbar" id="toolbar">
+<input class="search" id="search" placeholder="名称・住所・区名で絞り込み"/>
+<details id="filterToggle" class="filter-toggle">
+<summary class="btn" style="list-style:none;cursor:pointer">▼ カテゴリ・パターン</summary>
+<div class="filter-chips" id="filterChips"></div>
+</details>
+</div>
 <main>
 <div class="section-title">Locations / 訪問先カード（<span id="count">0</span>件）</div>
 <div class="data-bar">
@@ -203,16 +213,16 @@ card.innerHTML='<div class="route-head"><span class="tag">パターン '+r.id+'<
 el.appendChild(card);});}
 
 function renderToolbar(){var tb=document.getElementById('toolbar');
-var old=tb.querySelectorAll('.chip,.group-label');for(var i=0;i<old.length;i++)old[i].remove();
+var fc=document.getElementById('filterChips');fc.innerHTML='';
 var cats={},patC={};data.forEach(function(d){cats[d.cat]=(cats[d.cat]||0)+1;d.patterns.forEach(function(p){patC[p]=(patC[p]||0)+1;});});
-function addChip(cls,key,label,count){var b=document.createElement('button');b.className='chip '+cls;b.setAttribute('data-'+(cls==='cat'?'cat':'pat'),key);b.innerHTML=label+' <span class="n">('+count+')</span>';tb.appendChild(b);return b;}
-var gl1=document.createElement('span');gl1.className='group-label';gl1.textContent='Category';tb.appendChild(gl1);
+function addChip(cls,key,label,count){var b=document.createElement('button');b.className='chip '+cls;b.setAttribute('data-'+(cls==='cat'?'cat':'pat'),key);b.innerHTML=label+' <span class="n">('+count+')</span>';fc.appendChild(b);return b;}
+var gl1=document.createElement('span');gl1.className='group-label';gl1.textContent='Category';fc.appendChild(gl1);
 var ac=addChip('cat','ALL','全件',data.length);ac.classList.add('active');
 Object.keys(cats).sort().forEach(function(c){addChip('cat',c,c,cats[c]);});
-var gl2=document.createElement('span');gl2.className='group-label';gl2.textContent='Pattern';tb.appendChild(gl2);
+var gl2=document.createElement('span');gl2.className='group-label';gl2.textContent='Pattern';fc.appendChild(gl2);
 ['A','B','C','X'].forEach(function(p){if(patC[p])addChip('pat',p,'パターン'+p,patC[p]);});
-tb.querySelectorAll('.chip.cat').forEach(function(ch){ch.addEventListener('click',function(){tb.querySelectorAll('.chip.cat').forEach(function(x){x.classList.remove('active');});ch.classList.add('active');activeCat=ch.getAttribute('data-cat');applyFilter();});});
-tb.querySelectorAll('.chip.pat').forEach(function(ch){ch.addEventListener('click',function(){if(ch.classList.contains('active')){ch.classList.remove('active');activePat=null;}else{tb.querySelectorAll('.chip.pat').forEach(function(x){x.classList.remove('active');});ch.classList.add('active');activePat=ch.getAttribute('data-pat');}applyFilter();});});}
+fc.querySelectorAll('.chip.cat').forEach(function(ch){ch.addEventListener('click',function(){fc.querySelectorAll('.chip.cat').forEach(function(x){x.classList.remove('active');});ch.classList.add('active');activeCat=ch.getAttribute('data-cat');applyFilter();});});
+fc.querySelectorAll('.chip.pat').forEach(function(ch){ch.addEventListener('click',function(){if(ch.classList.contains('active')){ch.classList.remove('active');activePat=null;}else{fc.querySelectorAll('.chip.pat').forEach(function(x){x.classList.remove('active');});ch.classList.add('active');activePat=ch.getAttribute('data-pat');}applyFilter();});});}
 
 function renderCards(){var grid=document.getElementById('grid');grid.innerHTML='';
 data.forEach(function(d,i){var card=document.createElement('div');card.className='card';card.setAttribute('data-cat',d.cat);card.setAttribute('data-pats',d.patterns.join(','));
@@ -236,24 +246,35 @@ var cs=[];items.forEach(function(d){if(cs.indexOf(d.cat)<0)cs.push(d.cat);});rel
 document.getElementById('search').addEventListener('input',function(e){activeQuery=e.target.value.trim().toLowerCase();applyFilter();});
 
 function parsePaste(){var raw=document.getElementById('fPaste').value.trim();if(!raw){document.getElementById('parseResult').textContent='テキストを入力してください';return;}
+var r={name:'',zh:'',addr:'',pinyin:'',subway:'',hours:''};
 var lines=raw.split(/\n+/).map(function(l){return l.trim();}).filter(Boolean);
-var name='',zh='',addr='',pinyin='';
-function isCN(s){return/[\u4e00-\u9fff]/.test(s);}
-function isAddr(s){return/北京|省|市|区|路|街|号|大街|胡同|里|层|座|桥|道/.test(s);}
-function isPY(s){return/[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]/.test(s)||(/^[A-Z][a-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]+/.test(s)&&s.split(/\s+/).length>=2);}
-function isJP(s){return/[\u3040-\u309f\u30a0-\u30ff]/.test(s);}
-for(var i=0;i<lines.length;i++){var L=lines[i];
-if(isCN(L)&&isAddr(L)){addr=addr||L;}
-else if(isPY(L)&&!isCN(L)){pinyin=pinyin||L;}
-else if(isJP(L)){name=name||L;}
-else if(isCN(L)){if(!zh)zh=L;else if(!name)name=L;}
-else if(/^[A-Za-z0-9\s\-()（）]+$/.test(L)&&L.length>2){if(!name)name=L;else if(!pinyin)pinyin=L;}}
-if(!name&&zh)name=zh;if(!zh&&name&&isCN(name))zh=name;
-if(name)document.getElementById('fName').value=name;
-if(zh)document.getElementById('fZh').value=zh;
-if(addr)document.getElementById('fAddr').value=addr;
-if(pinyin)document.getElementById('fPinyin').value=pinyin;
-var f=[];if(name)f.push('名称');if(zh)f.push('中文名');if(addr)f.push('住所');if(pinyin)f.push('ピンイン');
+var full=lines.join('\n');
+var lp=/(項目詳細|(?:詳細)?住所|地址|アクセス|交通|目安時間|営業時間|营业时间|电话|電話|店舗名|店铺名|最寄)/;
+var parts=full.split(lp);
+if(parts.length>1){
+var pre=parts[0].trim();if(pre){var pls=pre.split('\n');for(var j=0;j<pls.length;j++){var pl=pls[j].trim();if(!pl)continue;var isJP=/[\u3040-\u309f\u30a0-\u30ff]/.test(pl);var isCN=/[\u4e00-\u9fff]/.test(pl)&&!isJP;if(isJP&&!r.name)r.name=pl;else if(isCN&&!r.zh)r.zh=pl;else if(!r.name)r.name=pl;}}
+var i=1;while(i<parts.length-1){var key=parts[i].trim();var val=(parts[i+1]||'').trim().replace(/^[：:]\s*/,'');i+=2;
+if(key==='項目詳細')continue;
+if(key==='住所'||key==='詳細住所'||key==='地址'){var ma=val.match(/^((?:北京[市]?)?[\u4e00-\u9fff\w（）\(\)\s]+?(?:号|层|室|楼|店)[\w]*)/);r.addr=ma?ma[1].trim():val.trim();}
+else if(key==='アクセス'||key==='交通'){var ms=val.match(/(地下[鉄铁]\d+号[線线][「\u300c]?[^」\u300d]*?[駅站][」\u300d]?[^\d]*徒歩[約约]?\d+分)/);r.subway=ms?'🚇 '+ms[1]:val.split('目安')[0].trim().substring(0,60);}
+else if(key==='営業時間'||key==='营业时间'){var mt=val.match(/(\d{1,2}:\d{2}[～\-~]\d{1,2}:\d{2})/);r.hours=mt?mt[1]:val.trim().substring(0,20);}
+else if(key==='店舗名'||key==='店铺名'){if(!r.zh)r.zh=val;}}
+}else{
+for(var k=0;k<lines.length;k++){var line=lines[k];
+var mkv=line.match(/^(店舗名|地址|住所|电话|营业时间|電話)[：:]\s*(.*)/);
+if(mkv){var kk=mkv[1],vv=mkv[2].trim();if((kk==='地址'||kk==='住所')&&!r.addr)r.addr=vv;else if(kk==='店舗名'&&!r.zh)r.zh=vv;else if(kk==='营业时间'&&!r.hours)r.hours=vv;continue;}
+var isCN2=/[\u4e00-\u9fff]/.test(line);var isJP2=/[\u3040-\u309f\u30a0-\u30ff]/.test(line);
+var isAddr2=isCN2&&/(?:北京|市.+区.+[路街号]|大街|胡同|层|座)/.test(line);
+var isPY=/[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]/.test(line)||(/^[A-Z][a-z]/.test(line)&&line.split(/\s+/).length>=2&&!isCN2);
+if(isAddr2&&!r.addr)r.addr=line;else if(isPY&&!r.pinyin)r.pinyin=line;else if(isJP2&&!r.name)r.name=line;else if(isCN2&&!r.zh)r.zh=line;else if(isCN2&&!r.name)r.name=line;}}
+if(!r.name&&r.zh)r.name=r.zh;if(!r.zh&&r.name&&/[\u4e00-\u9fff]/.test(r.name))r.zh=r.name;
+if(r.name)document.getElementById('fName').value=r.name;
+if(r.zh)document.getElementById('fZh').value=r.zh;
+if(r.addr)document.getElementById('fAddr').value=r.addr;
+if(r.pinyin)document.getElementById('fPinyin').value=r.pinyin;
+if(r.subway)document.getElementById('fSubway').value=r.subway;
+if(r.hours){var n=document.getElementById('fNote');n.value=n.value?(n.value+' / 営業:'+r.hours):('営業:'+r.hours);}
+var f=[];if(r.name)f.push('名称');if(r.zh)f.push('中文名');if(r.addr)f.push('住所');if(r.pinyin)f.push('ピンイン');if(r.subway)f.push('最寄駅');if(r.hours)f.push('営業時間→備考');
 document.getElementById('parseResult').textContent=f.length?'→ '+f.join('・')+' を検出':'自動判別できませんでした。手動入力してください。';}
 
 function openForm(idx){var isEdit=idx!==undefined&&idx>=0;document.getElementById('formTitle').textContent=isEdit?'編集':'新規追加';document.getElementById('editIdx').value=isEdit?idx:-1;
